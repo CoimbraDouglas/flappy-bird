@@ -1,0 +1,1577 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Flappy Bird</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%;
+    background: #1a1a2e;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+  }
+  #wrap {
+    position: relative;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+    background: #4ec0ca;
+    max-width: 100vw;
+    max-height: 100vh;
+  }
+  #hint {
+    position: absolute;
+    bottom: 10px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: rgba(255,255,255,.75);
+    font-size: 13px;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,.4);
+    user-select: none;
+  }
+  #fsbtn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    line-height: 1;
+    color: #fff;
+    background: rgba(0,0,0,.28);
+    border: 1.5px solid rgba(255,255,255,.35);
+    border-radius: 10px;
+    cursor: pointer;
+    z-index: 5;
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    transition: background .15s, transform .1s;
+    user-select: none;
+  }
+  #fsbtn:hover { background: rgba(0,0,0,.45); }
+  #fsbtn:active { transform: scale(.92); }
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="360" height="640"></canvas>
+    <div id="hint">Clique, toque ou aperte ESPAÇO para voar</div>
+    <div id="fsbtn" title="Tela cheia" aria-label="Tela cheia">⛶</div>
+  </div>
+
+<script>
+(function () {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const hint = document.getElementById('hint');
+  if (hint) hint.style.display = 'none'; // o menu e os painéis já instruem
+
+  // --- Configuração ---
+  const GRAVITY = 0.30;
+  const FLAP = -6.4;
+  const PIPE_W = 58;
+  const PIPE_GAP = 165;
+  const PIPE_SPACING = 210;
+  const PIPE_SPEED = 2.4;
+  const RUST_FULL = 220; // pontuação em que os canos ficam totalmente enferrujados
+  const GROUND_H = 90;
+  const BIRD_X = 90;
+  const COIN_R = 13;
+  // Tipos de moeda: valor, chance de aparecer e cores.
+  // Chances somam 70% (gold 10% + silver 25% + bronze 35%); 30% sem moeda.
+  const COIN_TYPES = {
+    gold:   { value: 3, outer: '#ffcf1a', inner: '#ffe98a', edge: '#c98f00', glow: 'rgba(255,205,26,.9)' },
+    silver: { value: 2, outer: '#cfd6e0', inner: '#f2f5fa', edge: '#8a94a6', glow: 'rgba(207,214,224,.9)' },
+    bronze: { value: 1, outer: '#d98a4a', inner: '#f2b98a', edge: '#a05a25', glow: 'rgba(217,138,74,.85)' }
+  };
+  function rollCoinType() {
+    const r = Math.random();
+    if (r < 0.10) return 'gold';   // 10%
+    if (r < 0.35) return 'silver'; // 25%
+    if (r < 0.70) return 'bronze'; // 35%
+    return null;                   // 30% sem moeda
+  }
+
+  // Céu muda conforme a pontuação: cada tema tem cor de topo e de baixo.
+  // A transição entre um tema e o próximo é suave (interpolada).
+  const SKY_STOPS  = [   0,        75,        150,       250,       350      ];
+  const SKY_THEMES = [
+    { top: '#4ec0ca', bottom: '#8fe3d0' }, //   0  – dia
+    { top: '#7fc7e8', bottom: '#f6d98a' }, //  75  – manhã dourada
+    { top: '#f2a65a', bottom: '#f4d06f' }, // 150  – entardecer
+    { top: '#d8556b', bottom: '#f2a65a' }, // 250  – pôr do sol
+    { top: '#1b2a4a', bottom: '#4a4a80' }  // 350+ – noite
+  ];
+
+  function parseColor(c) {
+    if (c[0] === '#') {
+      const h = c.slice(1);
+      return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    }
+    const m = c.match(/\d+/g);
+    return [+m[0], +m[1], +m[2]];
+  }
+  function mix(c1, c2, t) { // mistura duas cores -> [r,g,b]
+    const a = parseColor(c1), b = parseColor(c2);
+    return [Math.round(a[0] + (b[0] - a[0]) * t),
+            Math.round(a[1] + (b[1] - a[1]) * t),
+            Math.round(a[2] + (b[2] - a[2]) * t)];
+  }
+  function lerpColor(c1, c2, t) {
+    const c = mix(c1, c2, t);
+    return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+  }
+  // Retorna as cores do céu para a pontuação atual (com transição suave).
+  function currentSky() {
+    let i = 0;
+    while (i < SKY_STOPS.length - 1 && score >= SKY_STOPS[i + 1]) i++;
+    if (i >= SKY_THEMES.length - 1) return SKY_THEMES[SKY_THEMES.length - 1];
+    const lo = SKY_STOPS[i], hi = SKY_STOPS[i + 1];
+    const t = Math.max(0, Math.min(1, (score - lo) / (hi - lo)));
+    return {
+      top: lerpColor(SKY_THEMES[i].top, SKY_THEMES[i + 1].top, t),
+      bottom: lerpColor(SKY_THEMES[i].bottom, SKY_THEMES[i + 1].bottom, t)
+    };
+  }
+  // 0 = dia claro, 1 = noite total. Estrelas/lua surgem entre 250 e 350 pontos.
+  function nightFactor() {
+    return Math.max(0, Math.min(1, (score - 250) / 100));
+  }
+
+  // --- Estados ---
+  const READY = 0, PLAY = 1, DEAD = 2, MENU = 3;
+  let state = MENU;
+  let menuScreen = 'main'; // main | records | options | quit
+  let pointer = { x: -1, y: -1 }; // posição do mouse (para destacar botões)
+  let lastHover = null;           // último botão sob o cursor (para som de hover)
+  let shakeEnabled = localStorage.getItem('flappy_shake') !== '0';
+  let soundOn = localStorage.getItem('flappy_sound') !== '0';
+
+  let best = parseInt(localStorage.getItem('flappy_best') || '0', 10);
+  let score = 0;
+  let coinsCollected = 0;
+  let frame = 0;
+
+  const bird = { x: BIRD_X, y: H / 2, vy: 0, r: 14, rot: 0 };
+  let pipes = [];
+  let coins = [];
+  let pops = []; // efeito visual ao coletar moeda
+  let meteors = []; // estrelas cadentes / meteoros (200+ pontos)
+  const METEOR_SCORE = 200;
+
+  // Habilidades / power-ups (só a partir de 200 pontos, raros)
+  let powers = [];      // itens flutuantes coletáveis
+  let invTimer = 0;     // frames restantes de invencibilidade (Estrela)
+  let slowTimer = 0;    // frames restantes de câmera lenta
+  let timeMul = 1;      // fator de tempo (1 normal, <1 em câmera lenta)
+  let shards = [];      // estilhaços dos canos destruídos pela Estrela
+  let shake = 0;        // intensidade do tremor de tela (decai a cada frame)
+  let warpFx = 0;       // frames restantes do efeito de teletransporte (Espaço)
+  let warpParts = [];   // partículas do teletransporte
+  const WARP_GAIN = 150; // pontos ganhos ao pegar o Espaço
+  const WARP_FX_TIME = 30;
+  const POWER_SCORE = 200;
+  const POWER_R = 15;
+  const INV_TIME = 780;  // 13s de invencibilidade
+  const SLOW_TIME = 780; // 13s de câmera lenta
+  const SLOW_MUL = 0.5;  // velocidade durante a câmera lenta
+
+  // Estrelas do céu noturno (posições fixas, cintilam suavemente)
+  const stars = [];
+  for (let i = 0; i < 48; i++) {
+    stars.push({
+      x: Math.random() * W,
+      y: Math.random() * (H - GROUND_H - 140),
+      r: 0.6 + Math.random() * 1.4,
+      ph: Math.random() * Math.PI * 2,
+      sp: 0.03 + Math.random() * 0.05
+    });
+  }
+
+  function reset() {
+    bird.y = H / 2;
+    bird.vy = 0;
+    bird.rot = 0;
+    pipes = [];
+    coins = [];
+    pops = [];
+    meteors = [];
+    powers = [];
+    shards = [];
+    warpParts = [];
+    warpFx = 0;
+    shake = 0;
+    invTimer = 0;
+    slowTimer = 0;
+    timeMul = 1;
+    score = 0;
+    coinsCollected = 0;
+    frame = 0;
+    // primeiro cano com folga (sem moeda no primeiro, pra não começar já coletando)
+    spawnPipe(W + 80, false);
+    spawnPipe(W + 80 + PIPE_SPACING);
+    spawnPipe(W + 80 + PIPE_SPACING * 2);
+  }
+
+  function spawnPipe(x, allowCoin) {
+    const margin = 60;
+    const minTop = margin;
+    const maxTop = H - GROUND_H - PIPE_GAP - margin;
+    const top = minTop + Math.random() * (maxTop - minTop);
+
+    // ferrugem aumenta com a pontuação: canos mais adiante são "mais antigos"
+    const rust = Math.max(0, Math.min(1, score / RUST_FULL));
+    const rustSpots = [];
+    for (let k = 0; k < 7; k++) {
+      rustSpots.push({
+        seg: Math.random() < 0.5 ? 0 : 1, // 0 = cano de cima, 1 = de baixo
+        u: Math.random(),                 // posição horizontal (0..1)
+        yf: Math.random(),                // posição vertical dentro do segmento
+        rx: 3 + Math.random() * 7,
+        ry: 4 + Math.random() * 11,
+        warm: Math.random()               // >0.5 = mancha alaranjada, senão marrom escuro
+      });
+    }
+    const streaks = [];
+    for (let k = 0; k < 4; k++) {
+      streaks.push({ u: Math.random(), w: 1.5 + Math.random() * 2.5, len: 0.3 + Math.random() * 0.55 });
+    }
+
+    pipes.push({ x, top, passed: false, rust, rustSpots, streaks });
+
+    // power-ups raros
+    let placedPower = false;
+    if (allowCoin !== false) {
+      let kind = null;
+      // Espaço (teletransporte): 1% a qualquer pontuação
+      if (Math.random() < 0.01) {
+        kind = 'warp';
+      } else if (score >= POWER_SCORE) {
+        // Estrela / Câmera lenta: só a partir de 200 pontos
+        const pr = Math.random();
+        if (pr < 0.04) kind = 'star';
+        else if (pr < 0.08) kind = 'slow';
+      }
+      if (kind) {
+        powers.push({
+          x: x + PIPE_W / 2,
+          y: top + PIPE_GAP / 2,
+          taken: false,
+          phase: Math.random() * Math.PI * 2,
+          kind: kind
+        });
+        placedPower = true;
+      }
+    }
+
+    // moeda bônus flutuando no meio da folga do cano (se não colocou power-up)
+    if (!placedPower && allowCoin !== false) {
+      const type = rollCoinType();
+      if (type) {
+        coins.push({
+          x: x + PIPE_W / 2,
+          y: top + PIPE_GAP / 2,
+          taken: false,
+          phase: Math.random() * Math.PI * 2,
+          type: type
+        });
+      }
+    }
+  }
+
+  function flap() {
+    if (state === READY) {
+      state = PLAY;
+      bird.vy = FLAP;
+      sndFlap();
+    } else if (state === PLAY) {
+      bird.vy = FLAP;
+      sndFlap();
+    } else if (state === DEAD) {
+      // pequeno delay para evitar restart acidental
+      if (frame - deadFrame > 20) {
+        reset();
+        state = READY;
+      }
+    }
+  }
+
+  function startGame() {
+    reset();
+    state = READY;
+    menuScreen = 'main';
+    sndStart();
+  }
+
+  let deadFrame = 0;
+  function die() {
+    if (state !== PLAY) return;
+    state = DEAD;
+    deadFrame = frame;
+    sndHit();
+    if (score > best) {
+      best = score;
+      localStorage.setItem('flappy_best', String(best));
+    }
+  }
+
+  // Espaço: teletransporta o jogador WARP_GAIN pontos à frente + efeito visual
+  function triggerWarp() {
+    score += WARP_GAIN;
+    warpFx = WARP_FX_TIME;
+    sndWarp();
+    pops.push({ x: bird.x, y: bird.y - 26, life: 42, text: 'WARP +' + WARP_GAIN, color: '#c9a3ff' });
+    const cols = ['#8f6bff', '#5ad2ff', '#ffffff'];
+    for (let i = 0; i < 20; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2 + Math.random() * 4.5;
+      warpParts.push({
+        x: bird.x, y: bird.y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: 22 + Math.random() * 14,
+        r: 2 + Math.random() * 2.5,
+        col: cols[(Math.random() * cols.length) | 0]
+      });
+    }
+  }
+
+  // --- Áudio (sintetizado, sem arquivos) ---
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  let actx = null;
+  function audio() {
+    if (!AudioCtx) return null;
+    if (!actx) { try { actx = new AudioCtx(); } catch (e) { return null; } }
+    if (actx.state === 'suspended') actx.resume();
+    return actx;
+  }
+  // tom simples com envelope; opts: {type,f0,f1,dur,vol,delay}
+  function tone(opts) {
+    if (!soundOn) return;
+    const ac = audio(); if (!ac) return;
+    const t0 = ac.currentTime + (opts.delay || 0);
+    const dur = opts.dur || 0.1;
+    const vol = opts.vol != null ? opts.vol : 0.18;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = opts.type || 'sine';
+    osc.frequency.setValueAtTime(opts.f0, t0);
+    if (opts.f1 != null) osc.frequency.exponentialRampToValueAtTime(Math.max(1, opts.f1), t0 + dur);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(gain).connect(ac.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.03);
+  }
+  // ruído filtrado (impactos); type de filtro: lowpass/highpass/bandpass
+  function noise(dur, vol, freq, ftype) {
+    if (!soundOn) return;
+    const ac = audio(); if (!ac) return;
+    const t0 = ac.currentTime;
+    const n = Math.floor(ac.sampleRate * dur);
+    const buf = ac.createBuffer(1, n, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
+    const src = ac.createBufferSource(); src.buffer = buf;
+    const filt = ac.createBiquadFilter(); filt.type = ftype || 'lowpass'; filt.frequency.value = freq || 1200;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(vol || 0.3, t0);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(filt).connect(gain).connect(ac.destination);
+    src.start(t0); src.stop(t0 + dur);
+  }
+
+  function sndFlap()  { tone({ type: 'triangle', f0: 420, f1: 680, dur: 0.09, vol: 0.10 }); }
+  function sndPoint() { tone({ type: 'sine', f0: 880, dur: 0.07, vol: 0.12 }); }
+  function sndCoin(v) {
+    const base = v >= 3 ? 990 : v >= 2 ? 820 : 680;
+    tone({ type: 'square', f0: base, dur: 0.06, vol: 0.11 });
+    tone({ type: 'square', f0: base * 1.5, dur: 0.10, vol: 0.11, delay: 0.06 });
+  }
+  function sndHit() {
+    noise(0.18, 0.35, 1600, 'lowpass');
+    tone({ type: 'square', f0: 200, f1: 70, dur: 0.28, vol: 0.20 });
+  }
+  function sndStar() {
+    const notes = [523, 659, 784, 1046];
+    notes.forEach((f, i) => tone({ type: 'triangle', f0: f, dur: 0.13, vol: 0.16, delay: i * 0.06 }));
+  }
+  function sndSlow() { tone({ type: 'sawtooth', f0: 720, f1: 170, dur: 0.5, vol: 0.16 }); }
+  function sndWarp() {
+    tone({ type: 'sawtooth', f0: 180, f1: 1400, dur: 0.18, vol: 0.16 });
+    tone({ type: 'sawtooth', f0: 1400, f1: 220, dur: 0.22, vol: 0.14, delay: 0.17 });
+    noise(0.3, 0.12, 2600, 'bandpass');
+  }
+  function sndShatter() {
+    noise(0.14, 0.28, 2600, 'highpass');
+    tone({ type: 'square', f0: 150, f1: 60, dur: 0.14, vol: 0.14 });
+  }
+  function sndClick() { tone({ type: 'square', f0: 420, dur: 0.05, vol: 0.12 }); }
+  function sndHover() { tone({ type: 'sine', f0: 900, dur: 0.03, vol: 0.05 }); }
+  function sndStart() {
+    [523, 784, 1046].forEach((f, i) => tone({ type: 'triangle', f0: f, dur: 0.1, vol: 0.15, delay: i * 0.07 }));
+  }
+
+  // --- Input ---
+  // converte a posição do evento (mouse/toque) para as coordenadas lógicas 360x640
+  function getPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const src = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+    return {
+      x: (src.clientX - rect.left) / rect.width * W,
+      y: (src.clientY - rect.top) / rect.height * H
+    };
+  }
+
+  function onPress(e) {
+    e.preventDefault();
+    if (state === MENU) {
+      const p = getPos(e);
+      handleMenuClick(p.x, p.y);
+      return;
+    }
+    if (state === DEAD) {
+      const p = getPos(e);
+      const b = deadMenuBtn();
+      if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) {
+        sndClick();
+        state = MENU;
+        menuScreen = 'main';
+        return;
+      }
+    }
+    flap();
+  }
+  canvas.addEventListener('mousedown', onPress);
+  canvas.addEventListener('touchstart', onPress, { passive: false });
+  canvas.addEventListener('mousemove', function (e) { pointer = getPos(e); });
+  canvas.addEventListener('mouseleave', function () { pointer = { x: -1, y: -1 }; });
+
+  window.addEventListener('keydown', function (e) {
+    if (e.code === 'Escape') {
+      e.preventDefault();
+      sndClick();
+      if (state === MENU) { if (menuScreen !== 'main') menuScreen = 'main'; }
+      else { state = MENU; menuScreen = 'main'; }
+      return;
+    }
+    if (state === MENU) {
+      if (e.code === 'Enter' || e.code === 'Space') {
+        e.preventDefault();
+        if (menuScreen === 'main') startGame(); else menuScreen = 'main';
+      }
+      return;
+    }
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'Enter') {
+      e.preventDefault();
+      flap();
+    }
+  });
+
+  // --- Tela cheia (melhor jogabilidade no celular) ---
+  const fsbtn = document.getElementById('fsbtn');
+  const docEl = document.documentElement;
+  const canFullscreen = !!(docEl.requestFullscreen || docEl.webkitRequestFullscreen);
+  function isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+  function toggleFullscreen() {
+    if (!canFullscreen) return;
+    if (!isFullscreen()) {
+      (docEl.requestFullscreen || docEl.webkitRequestFullscreen).call(docEl);
+      // tenta travar em retrato no celular (ignora erro no desktop/iOS)
+      if (screen.orientation && screen.orientation.lock) {
+        try { screen.orientation.lock('portrait').catch(function () {}); } catch (e) {}
+      }
+    } else {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    }
+  }
+  function onFsChange() {
+    if (fsbtn) fsbtn.title = isFullscreen() ? 'Sair da tela cheia' : 'Tela cheia';
+    fit(); // reajusta o canvas ao novo tamanho
+  }
+  if (fsbtn) {
+    if (!canFullscreen) {
+      fsbtn.style.display = 'none'; // navegador sem suporte (ex.: Safari no iPhone)
+    } else {
+      fsbtn.addEventListener('click', function (e) { e.preventDefault(); toggleFullscreen(); sndClick(); });
+      document.addEventListener('fullscreenchange', onFsChange);
+      document.addEventListener('webkitfullscreenchange', onFsChange);
+    }
+  }
+
+  // --- Menu ---
+  // Layout dos botões da tela de menu atual (mesma função usada para desenhar e clicar)
+  function layoutButtons() {
+    const bw = 210, bh = 46, gap = 14, x = W / 2 - bw / 2;
+    if (menuScreen === 'main') {
+      const items = [['JOGAR', 'play'], ['RECORDES', 'records'], ['OPÇÕES', 'options'], ['SAIR', 'quit']];
+      const y0 = H * 0.44;
+      return items.map(function (it, i) {
+        return { label: it[0], action: it[1], x: x, y: y0 + i * (bh + gap), w: bw, h: bh };
+      });
+    }
+    if (menuScreen === 'records') {
+      return [{ label: 'VOLTAR', action: 'back', x: x, y: H * 0.72, w: bw, h: bh }];
+    }
+    if (menuScreen === 'options') {
+      const items = [
+        ['Som: ' + (soundOn ? 'LIGADO' : 'DESLIGADO'), 'toggleSound'],
+        ['Tremor: ' + (shakeEnabled ? 'LIGADO' : 'DESLIGADO'), 'toggleShake'],
+        ['Zerar Recorde', 'resetBest'],
+        ['VOLTAR', 'back']
+      ];
+      const y0 = H * 0.4;
+      return items.map(function (it, i) {
+        return { label: it[0], action: it[1], x: x, y: y0 + i * (bh + gap), w: bw, h: bh };
+      });
+    }
+    if (menuScreen === 'quit') {
+      return [{ label: 'VOLTAR', action: 'back', x: x, y: H * 0.6, w: bw, h: bh }];
+    }
+    return [];
+  }
+
+  function handleMenuClick(mx, my) {
+    for (const b of layoutButtons()) {
+      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+        doAction(b.action);
+        return;
+      }
+    }
+  }
+
+  function doAction(a) {
+    if (a === 'play') { startGame(); return; }
+    if (a === 'toggleSound') {
+      soundOn = !soundOn;
+      localStorage.setItem('flappy_sound', soundOn ? '1' : '0');
+      if (soundOn) sndClick(); // feedback só ao ligar
+      return;
+    }
+    sndClick();
+    if (a === 'records') menuScreen = 'records';
+    else if (a === 'options') menuScreen = 'options';
+    else if (a === 'quit') tryQuit();
+    else if (a === 'back') menuScreen = 'main';
+    else if (a === 'toggleShake') {
+      shakeEnabled = !shakeEnabled;
+      localStorage.setItem('flappy_shake', shakeEnabled ? '1' : '0');
+    } else if (a === 'resetBest') {
+      best = 0;
+      localStorage.setItem('flappy_best', '0');
+    }
+  }
+
+  function tryQuit() {
+    menuScreen = 'quit';
+    // só funciona se a janela foi aberta por script; senão mostramos a mensagem de saída
+    try { window.open('', '_self'); window.close(); } catch (e) {}
+  }
+
+  // --- Update ---
+  function update() {
+    frame++;
+
+    if (state === PLAY) {
+      // câmera lenta desacelera tudo (inclusive o pássaro)
+      timeMul = slowTimer > 0 ? SLOW_MUL : 1;
+      const mul = timeMul;
+
+      bird.vy += GRAVITY * mul;
+      bird.y += bird.vy * mul;
+
+      // move canos, moedas e power-ups
+      for (const p of pipes) p.x -= PIPE_SPEED * mul;
+      for (const c of coins) c.x -= PIPE_SPEED * mul;
+      for (const pw of powers) pw.x -= PIPE_SPEED * mul;
+
+      // gera estrelas cadentes / meteoros a partir de 200 pontos
+      if (score >= METEOR_SCORE && Math.random() < 0.02) spawnMeteor();
+
+      // recicla / gera novos
+      if (pipes.length && pipes[0].x + PIPE_W < -10) {
+        pipes.shift();
+        const lastX = pipes[pipes.length - 1].x;
+        spawnPipe(lastX + PIPE_SPACING);
+      }
+
+      // remove moedas / power-ups que saíram da tela
+      coins = coins.filter(c => c.x > -30);
+      powers = powers.filter(pw => pw.x > -30);
+
+      // coleta de moedas (+valor)
+      for (const c of coins) {
+        if (c.taken) continue;
+        const dx = bird.x - c.x, dy = bird.y - c.y;
+        if (dx * dx + dy * dy < (bird.r + COIN_R) * (bird.r + COIN_R)) {
+          const t = COIN_TYPES[c.type];
+          c.taken = true;
+          score += t.value;
+          coinsCollected++;
+          sndCoin(t.value);
+          pops.push({ x: c.x, y: c.y, life: 22, text: '+' + t.value, color: t.outer });
+        }
+      }
+      coins = coins.filter(c => !c.taken);
+
+      // coleta de power-ups (Estrela / Câmera lenta)
+      for (const pw of powers) {
+        if (pw.taken) continue;
+        const dx = bird.x - pw.x, dy = bird.y - pw.y;
+        if (dx * dx + dy * dy < (bird.r + POWER_R) * (bird.r + POWER_R)) {
+          pw.taken = true;
+          if (pw.kind === 'star') {
+            invTimer = INV_TIME;
+            sndStar();
+            pops.push({ x: pw.x, y: pw.y, life: 30, text: 'ESTRELA!', color: '#ffd93b' });
+          } else if (pw.kind === 'slow') {
+            slowTimer = SLOW_TIME;
+            sndSlow();
+            pops.push({ x: pw.x, y: pw.y, life: 30, text: 'LENTO!', color: '#8fe3ff' });
+          } else if (pw.kind === 'warp') {
+            triggerWarp();
+          }
+        }
+      }
+      powers = powers.filter(pw => !pw.taken);
+
+      // pontuação
+      for (const p of pipes) {
+        if (!p.passed && p.x + PIPE_W < bird.x) {
+          p.passed = true;
+          score++;
+          sndPoint();
+        }
+      }
+
+      // colisão com chão / teto
+      if (bird.y + bird.r >= H - GROUND_H) {
+        bird.y = H - GROUND_H - bird.r;
+        if (invTimer > 0) bird.vy = -4; // quica levemente em vez de morrer
+        else die();
+      }
+      if (bird.y - bird.r <= 0) {
+        bird.y = bird.r;
+        bird.vy = 0;
+      }
+
+      // colisão com canos
+      if (invTimer > 0) {
+        // Estrela ativa: destrói (com estilhaços) todo cano que alcançar
+        let destroyed = 0;
+        for (const p of pipes) {
+          if (p.broken) continue;
+          if (bird.x + bird.r > p.x && bird.x - bird.r < p.x + PIPE_W) {
+            p.broken = true;
+            destroyed++;
+            if (!p.passed) { p.passed = true; score++; }
+            spawnShards(p);
+            sndShatter();
+            if (shakeEnabled) shake = 9; // tremor de tela no impacto
+          }
+        }
+        if (destroyed > 0) {
+          pipes = pipes.filter(p => !p.broken);
+          // repõe canos ao final para manter o espaçamento
+          for (let k = 0; k < destroyed; k++) {
+            const lastX = pipes.length ? pipes[pipes.length - 1].x : bird.x + W;
+            spawnPipe(lastX + PIPE_SPACING);
+          }
+        }
+      } else {
+        for (const p of pipes) {
+          if (bird.x + bird.r > p.x && bird.x - bird.r < p.x + PIPE_W) {
+            if (bird.y - bird.r < p.top || bird.y + bird.r > p.top + PIPE_GAP) {
+              die();
+            }
+          }
+        }
+      }
+
+      // contagem regressiva dos poderes
+      if (invTimer > 0) invTimer--;
+      if (slowTimer > 0) slowTimer--;
+    } else if (state === DEAD) {
+      // continua caindo até o chão
+      if (bird.y + bird.r < H - GROUND_H) {
+        bird.vy += GRAVITY;
+        bird.y += bird.vy;
+      } else {
+        bird.y = H - GROUND_H - bird.r;
+      }
+    } else if (state === READY || state === MENU) {
+      // flutua suavemente
+      bird.y = H / 2 + Math.sin(frame / 12) * 8;
+    }
+
+    // efeitos "+1" subindo e sumindo
+    for (const pop of pops) { pop.y -= 1; pop.life--; }
+    pops = pops.filter(p => p.life > 0);
+
+    // meteoros riscando o céu
+    for (const m of meteors) { m.x += m.vx; m.y += m.vy; }
+    meteors = meteors.filter(m => m.y < H - GROUND_H + 30 && m.x > -160);
+
+    // estilhaços dos canos destruídos caindo
+    for (const s of shards) {
+      s.vy += 0.32;
+      s.x += s.vx;
+      s.y += s.vy;
+      s.rot += s.vr;
+      s.life--;
+    }
+    shards = shards.filter(s => s.life > 0 && s.y < H + 40);
+
+    // tremor de tela decai suavemente
+    if (shake > 0) { shake *= 0.85; if (shake < 0.2) shake = 0; }
+
+    // efeito de teletransporte (Espaço)
+    if (warpFx > 0) warpFx--;
+    for (const p of warpParts) {
+      p.x += p.vx; p.y += p.vy;
+      p.vx *= 0.92; p.vy *= 0.92;
+      p.life--;
+    }
+    warpParts = warpParts.filter(p => p.life > 0);
+
+    // rotação do pássaro conforme velocidade
+    bird.rot = Math.max(-0.5, Math.min(1.4, bird.vy / 12));
+  }
+
+  // --- Render ---
+  let groundOffset = 0;
+
+  // desenha só o "mundo" do jogo (sem UI/menu)
+  function drawWorld() {
+    // céu (gradiente que muda conforme a pontuação)
+    const theme = currentSky();
+    const nf = nightFactor();
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, theme.top);
+    sky.addColorStop(1, theme.bottom);
+    ctx.fillStyle = sky;
+    ctx.fillRect(-16, -16, W + 32, H + 32);
+
+    // estrelas e lua surgem à noite
+    if (nf > 0.01) {
+      drawStars(nf);
+      drawMoon(nf);
+    }
+
+    // nuvens (tom acompanha o céu)
+    drawClouds(theme, nf);
+
+    // estrelas cadentes / meteoros
+    drawMeteors();
+
+    // canos
+    for (const p of pipes) drawPipe(p);
+
+    // estilhaços dos canos destruídos
+    drawShards();
+
+    // moedas
+    for (const c of coins) drawCoin(c);
+
+    // power-ups (habilidades)
+    for (const pw of powers) drawPower(pw);
+
+    // chão (acompanha a câmera lenta)
+    if (state === PLAY) groundOffset = (groundOffset - PIPE_SPEED * timeMul) % 24;
+    drawGround();
+
+    // efeitos "+1" / avisos
+    for (const pop of pops) drawPop(pop);
+
+    // pássaro
+    drawBird();
+
+    // efeito de teletransporte no pássaro
+    if (warpFx > 0 || warpParts.length) drawWarpFx();
+  }
+
+  function draw() {
+    // Tela de menu: mundo desfocado ao fundo + interface do menu
+    if (state === MENU) {
+      ctx.save();
+      ctx.filter = 'blur(6px)';
+      drawWorld();
+      ctx.restore();
+      drawMenu();
+      return;
+    }
+
+    // tremor de tela (impacto da Estrela) — sacode só o mundo
+    ctx.save();
+    if (shake > 0) {
+      ctx.translate((Math.random() * 2 - 1) * shake, (Math.random() * 2 - 1) * shake);
+    }
+    drawWorld();
+    ctx.restore();
+
+    // tom azulado durante a câmera lenta
+    if (slowTimer > 0) {
+      ctx.fillStyle = 'rgba(120,200,255,0.10)';
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // flash roxo do teletransporte (estável, sobre toda a tela)
+    if (warpFx > 0) {
+      const a = (warpFx / WARP_FX_TIME) * 0.45;
+      ctx.fillStyle = 'rgba(150,90,255,' + a.toFixed(3) + ')';
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // UI
+    drawUI();
+  }
+
+  function drawStars(nf) {
+    for (const s of stars) {
+      const tw = 0.5 + 0.5 * Math.sin(frame * s.sp + s.ph);
+      ctx.fillStyle = 'rgba(255,255,255,' + (nf * tw * 0.9).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawMoon(nf) {
+    const mx = W * 0.74, my = 96, r = 26;
+    ctx.save();
+    ctx.globalAlpha = nf;
+
+    // brilho ao redor
+    const glow = ctx.createRadialGradient(mx, my, r * 0.4, mx, my, r * 2.3);
+    glow.addColorStop(0, 'rgba(255,255,225,.35)');
+    glow.addColorStop(1, 'rgba(255,255,225,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(mx, my, r * 2.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // corpo da lua
+    ctx.fillStyle = '#f5f3d8';
+    ctx.beginPath();
+    ctx.arc(mx, my, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // crateras
+    ctx.fillStyle = 'rgba(198,194,158,.55)';
+    ctx.beginPath(); ctx.arc(mx - 8, my - 6, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(mx + 7, my + 5, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(mx + 10, my - 9, 3, 0, Math.PI * 2); ctx.fill();
+
+    ctx.restore();
+  }
+
+  function spawnMeteor() {
+    const big = Math.random() < 0.3;                    // 30% meteoro grande, 70% estrela cadente
+    const speed = big ? 5 + Math.random() * 3 : 7 + Math.random() * 4;
+    const ang = Math.PI * (0.60 + Math.random() * 0.15); // desce em diagonal para a esquerda
+    meteors.push({
+      x: W * (0.35 + Math.random() * 0.9),              // pode começar fora da borda direita
+      y: -20 + Math.random() * (H * 0.28),
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed,
+      len: big ? 90 + Math.random() * 60 : 55 + Math.random() * 45,
+      big: big
+    });
+  }
+
+  function drawMeteors() {
+    for (const m of meteors) {
+      const sp = Math.hypot(m.vx, m.vy) || 1;
+      const tx = m.x - m.vx / sp * m.len;
+      const ty = m.y - m.vy / sp * m.len;
+
+      const g = ctx.createLinearGradient(m.x, m.y, tx, ty);
+      if (m.big) {
+        g.addColorStop(0, 'rgba(255,240,210,.95)');
+        g.addColorStop(0.4, 'rgba(255,180,110,.55)');
+        g.addColorStop(1, 'rgba(255,150,90,0)');
+      } else {
+        g.addColorStop(0, 'rgba(255,255,255,.95)');
+        g.addColorStop(0.4, 'rgba(200,225,255,.5)');
+        g.addColorStop(1, 'rgba(200,225,255,0)');
+      }
+
+      ctx.strokeStyle = g;
+      ctx.lineWidth = m.big ? 3 : 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(m.x, m.y);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+
+      // cabeça brilhante
+      ctx.save();
+      ctx.shadowColor = m.big ? 'rgba(255,190,130,.95)' : 'rgba(190,220,255,.95)';
+      ctx.shadowBlur = m.big ? 14 : 10;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, m.big ? 3.2 : 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // desenha uma estrela de N pontas
+  function starPath(cx, cy, outer, inner, points) {
+    ctx.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+      const rad = (i % 2 === 0) ? outer : inner;
+      const a = (Math.PI / points) * i - Math.PI / 2;
+      const px = cx + Math.cos(a) * rad, py = cy + Math.sin(a) * rad;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  function drawPower(pw) {
+    const bob = Math.sin(frame / 15 + pw.phase) * 4;
+    const cx = pw.x, cy = pw.y + bob;
+    const pulse = 1 + Math.sin(frame / 8 + pw.phase) * 0.08;
+
+    ctx.save();
+    if (pw.kind === 'star') {
+      // item Estrela (invencibilidade)
+      ctx.shadowColor = 'rgba(255,215,0,.9)';
+      ctx.shadowBlur = 16;
+      ctx.fillStyle = '#ffd93b';
+      ctx.strokeStyle = '#c98f00';
+      ctx.lineWidth = 2;
+      starPath(cx, cy, 15 * pulse, 6.5 * pulse, 5);
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff3ba';
+      starPath(cx, cy, 8 * pulse, 3.5 * pulse, 5);
+      ctx.fill();
+    } else if (pw.kind === 'slow') {
+      // item Câmera lenta (relógio)
+      ctx.shadowColor = 'rgba(120,220,255,.9)';
+      ctx.shadowBlur = 16;
+      ctx.fillStyle = '#e3f6ff';
+      ctx.strokeStyle = '#3aa6c9';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 14 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      // ponteiros girando devagar
+      ctx.strokeStyle = '#1c6b86';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      const a = frame / 40;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * 6, cy + Math.sin(a) * 6); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a * 3.2) * 9, cy + Math.sin(a * 3.2) * 9); ctx.stroke();
+    } else if (pw.kind === 'warp') {
+      // item Espaço (portal de teletransporte)
+      ctx.shadowColor = 'rgba(150,100,255,.9)';
+      ctx.shadowBlur = 16;
+      // núcleo com brilho radial
+      const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, 12 * pulse);
+      g.addColorStop(0, '#eafaff');
+      g.addColorStop(0.55, '#5ad2ff');
+      g.addColorStop(1, '#6a3fd0');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 11 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+      // anel externo
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#9a6bff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 14 * pulse, 0, Math.PI * 2);
+      ctx.stroke();
+      // dois arcos girando (efeito de vórtice)
+      ctx.strokeStyle = 'rgba(255,255,255,.9)';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      const a = frame / 9;
+      ctx.beginPath(); ctx.arc(cx, cy, 6.5, a, a + 1.7); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, 6.5, a + Math.PI, a + Math.PI + 1.7); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawWarpFx() {
+    // anéis de portal se expandindo a partir do pássaro
+    if (warpFx > 0) {
+      const t = (WARP_FX_TIME - warpFx) / WARP_FX_TIME; // 0..1
+      const ringCols = ['143,107,255', '90,210,255', '255,255,255'];
+      ctx.save();
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 3; i++) {
+        const rr = 8 + t * 72 + i * 12;
+        const al = Math.max(0, (warpFx / WARP_FX_TIME) * (1 - i * 0.28));
+        ctx.strokeStyle = 'rgba(' + ringCols[i] + ',' + al.toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.arc(bird.x, bird.y, rr, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    // partículas do teletransporte
+    for (const p of warpParts) {
+      ctx.globalAlpha = Math.min(1, p.life / 12);
+      ctx.fillStyle = p.col;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawClouds(theme, nf) {
+    // nuvens herdam um tom do céu; ficam menos brancas (mais escuras) à noite
+    const col = mix(theme.top, '#ffffff', 0.6 * (1 - 0.7 * nf));
+    const alpha = 0.5 - 0.18 * nf;
+    ctx.fillStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + alpha.toFixed(3) + ')';
+    for (let i = 0; i < 3; i++) {
+      const cx = ((frame * 0.3 + i * 140) % (W + 80)) - 40;
+      const cy = 90 + i * 55;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 18, 0, Math.PI * 2);
+      ctx.arc(cx + 20, cy + 4, 22, 0, Math.PI * 2);
+      ctx.arc(cx + 44, cy, 16, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawPipe(p) {
+    const r = p.rust || 0;
+    // cor do cano: verde novo -> marrom enferrujado
+    const c0 = lerpColor('#5cb85c', '#8a5a34', r);
+    const c1 = lerpColor('#73c973', '#b07a48', r);
+    const c2 = lerpColor('#4a9d4a', '#5e3a20', r);
+    const edge = lerpColor('#3a7d3a', '#3d2716', r);
+
+    const grad = ctx.createLinearGradient(p.x, 0, p.x + PIPE_W, 0);
+    grad.addColorStop(0, c0);
+    grad.addColorStop(0.5, c1);
+    grad.addColorStop(1, c2);
+
+    const lipH = 18, lipW = 6;
+    const by = p.top + PIPE_GAP;
+    const bh = H - GROUND_H - by;
+
+    // corpos
+    ctx.fillStyle = grad;
+    ctx.fillRect(p.x, 0, PIPE_W, p.top);
+    ctx.fillRect(p.x, by, PIPE_W, bh);
+
+    // textura de ferrugem (manchas + escorridos), só quando já enferrujado
+    if (r > 0.03) {
+      drawRustSeg(p, r, 0, p.x, 0, PIPE_W, p.top);
+      if (bh > 0) drawRustSeg(p, r, 1, p.x, by, PIPE_W, bh);
+    }
+
+    // contornos e bocais por cima
+    ctx.strokeStyle = edge;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(p.x, 0, PIPE_W, p.top);
+    ctx.strokeRect(p.x, by, PIPE_W, bh);
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(p.x - lipW, p.top - lipH, PIPE_W + lipW * 2, lipH);
+    ctx.strokeRect(p.x - lipW, p.top - lipH, PIPE_W + lipW * 2, lipH);
+    ctx.fillRect(p.x - lipW, by, PIPE_W + lipW * 2, lipH);
+    ctx.strokeRect(p.x - lipW, by, PIPE_W + lipW * 2, lipH);
+  }
+
+  // desenha a ferrugem de um segmento do cano (recorta na área do cano)
+  function drawRustSeg(p, r, seg, x, y, w, h) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+
+    // manchas
+    for (const s of p.rustSpots) {
+      if (s.seg !== seg) continue;
+      const cx = x + s.u * w;
+      const cy = y + s.yf * h;
+      ctx.fillStyle = s.warm > 0.5
+        ? 'rgba(150,74,32,' + (0.5 * r).toFixed(3) + ')'
+        : 'rgba(74,46,28,' + (0.5 * r).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, s.rx, s.ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // escorridos descendo pela superfície
+    for (const st of p.streaks) {
+      const sx = x + st.u * w;
+      ctx.fillStyle = 'rgba(92,52,28,' + (0.32 * r).toFixed(3) + ')';
+      ctx.fillRect(sx, y, st.w, h * st.len);
+    }
+
+    ctx.restore();
+  }
+
+  // cria estilhaços a partir de um cano destruído (usa a cor atual do cano)
+  function spawnShards(p) {
+    const r = p.rust || 0;
+    const cols = [
+      lerpColor('#73c973', '#b07a48', r),
+      lerpColor('#5cb85c', '#8a5a34', r),
+      lerpColor('#4a9d4a', '#5e3a20', r)
+    ];
+    const by = p.top + PIPE_GAP;
+    const segs = [{ y0: 0, y1: p.top }, { y0: by, y1: H - GROUND_H }];
+    for (const seg of segs) {
+      const hgt = seg.y1 - seg.y0;
+      if (hgt <= 0) continue;
+      const n = Math.max(6, Math.round(hgt / 22));
+      for (let i = 0; i < n; i++) {
+        shards.push({
+          x: p.x + Math.random() * PIPE_W,
+          y: seg.y0 + Math.random() * hgt,
+          vx: -1 - Math.random() * 3 + (Math.random() - 0.5) * 2,
+          vy: -3 + (Math.random() - 0.5) * 5,
+          rot: Math.random() * Math.PI,
+          vr: (Math.random() - 0.5) * 0.4,
+          w: 4 + Math.random() * 7,
+          h: 4 + Math.random() * 7,
+          life: 40 + Math.random() * 30,
+          color: cols[(Math.random() * cols.length) | 0]
+        });
+      }
+    }
+  }
+
+  function drawShards() {
+    for (const s of shards) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, s.life / 15);
+      ctx.translate(s.x, s.y);
+      ctx.rotate(s.rot);
+      ctx.fillStyle = s.color;
+      ctx.fillRect(-s.w / 2, -s.h / 2, s.w, s.h);
+      ctx.restore();
+    }
+  }
+
+  function drawCoin(c) {
+    const t = COIN_TYPES[c.type];
+    const bob = Math.sin(frame / 15 + c.phase) * 4;           // flutua para cima/baixo
+    const spin = Math.abs(Math.cos(frame / 12 + c.phase));    // gira (achata na horizontal)
+    const cx = c.x, cy = c.y + bob;
+    const rx = Math.max(2, COIN_R * spin);
+
+    ctx.save();
+    // brilho ao redor
+    ctx.shadowColor = t.glow;
+    ctx.shadowBlur = 12;
+
+    // disco externo
+    ctx.fillStyle = t.outer;
+    ctx.strokeStyle = t.edge;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, COIN_R, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // disco interno
+    ctx.fillStyle = t.inner;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx * 0.62, COIN_R * 0.62, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // valor no centro quando a moeda está "de frente"
+    if (rx > COIN_R * 0.5) {
+      ctx.fillStyle = t.edge;
+      ctx.font = 'bold ' + Math.round(COIN_R * 1.15) + 'px Segoe UI, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(t.value), cx, cy + 1);
+      ctx.textBaseline = 'alphabetic';
+    }
+    ctx.restore();
+  }
+
+  function drawPop(pop) {
+    const alpha = Math.min(1, pop.life / 22);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = pop.color || '#fff';
+    ctx.strokeStyle = 'rgba(0,0,0,.5)';
+    ctx.lineWidth = 3;
+    ctx.font = 'bold 22px Segoe UI, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.strokeText(pop.text, pop.x, pop.y);
+    ctx.fillText(pop.text, pop.x, pop.y);
+    ctx.restore();
+  }
+
+  function drawGround() {
+    const gy = H - GROUND_H;
+    ctx.fillStyle = '#ded895';
+    ctx.fillRect(-16, gy, W + 32, GROUND_H + 16);
+    ctx.fillStyle = '#c5b869';
+    ctx.fillRect(0, gy, W, 12);
+    // faixa tracejada de grama
+    ctx.fillStyle = '#7ec850';
+    ctx.fillRect(0, gy - 6, W, 8);
+    ctx.fillStyle = '#5cb83c';
+    for (let x = groundOffset; x < W; x += 24) {
+      ctx.fillRect(x, gy - 6, 12, 8);
+    }
+  }
+
+  function drawBird() {
+    ctx.save();
+    ctx.translate(bird.x, bird.y);
+
+    // aura pulsante colorida durante a invencibilidade
+    if (invTimer > 0) {
+      const hue = (frame * 8) % 360;
+      const blink = invTimer < 60 && (frame % 8 < 4); // pisca no fim
+      ctx.save();
+      ctx.globalAlpha = (blink ? 0.25 : 0.55) + 0.25 * Math.sin(frame / 4);
+      ctx.fillStyle = 'hsl(' + hue + ',100%,60%)';
+      ctx.beginPath();
+      ctx.arc(0, 0, bird.r + 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.rotate(bird.rot);
+
+    // corpo
+    ctx.fillStyle = '#f9d648';
+    ctx.strokeStyle = '#e0a800';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, bird.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // asa (bate durante o jogo)
+    const wingUp = state === PLAY ? Math.sin(frame / 3) * 5 : 2;
+    ctx.fillStyle = '#f5c400';
+    ctx.beginPath();
+    ctx.ellipse(-3, 2 - wingUp, 8, 5, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // barriga
+    ctx.fillStyle = '#fff2b0';
+    ctx.beginPath();
+    ctx.arc(2, 5, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // olho
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(6, -5, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#222';
+    ctx.beginPath();
+    ctx.arc(7.5, -5, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // bico
+    ctx.fillStyle = '#ff8c33';
+    ctx.strokeStyle = '#d9701f';
+    ctx.beginPath();
+    ctx.moveTo(bird.r - 2, -1);
+    ctx.lineTo(bird.r + 8, 2);
+    ctx.lineTo(bird.r - 2, 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawUI() {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = 'rgba(0,0,0,.35)';
+
+    if (state === PLAY || state === DEAD) {
+      ctx.font = 'bold 52px Segoe UI, sans-serif';
+      ctx.lineWidth = 5;
+      ctx.strokeText(score, W / 2, 90);
+      ctx.fillText(score, W / 2, 90);
+    }
+
+    // HUD dos poderes ativos (canto superior esquerdo)
+    if (state === PLAY) {
+      let hy = 14;
+      if (invTimer > 0) { powerBadge(12, hy, 'ESTRELA', invTimer / INV_TIME, '#ffd93b'); hy += 26; }
+      if (slowTimer > 0) { powerBadge(12, hy, 'LENTO', slowTimer / SLOW_TIME, '#7fd8ff'); }
+    }
+
+    if (state === READY) {
+      panel('Prepare-se!', ['Toque para voar']);
+    }
+
+    if (state === DEAD) {
+      panel('Game Over', [
+        'Pontos: ' + score,
+        'Moedas: ' + coinsCollected,
+        'Recorde: ' + best
+      ]);
+      drawButton(deadMenuBtn());
+    }
+  }
+
+  function deadMenuBtn() {
+    return { x: W / 2 - 80, y: 434, w: 160, h: 42, label: 'MENU', action: 'toMenu' };
+  }
+
+  // --- Desenho do menu ---
+  function drawMenu() {
+    // escurece o fundo desfocado para dar contraste
+    ctx.fillStyle = 'rgba(10,18,30,0.55)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+
+    if (menuScreen === 'main') {
+      menuTitle('FLAPPY', 'BIRD');
+      ctx.fillStyle = 'rgba(255,255,255,.85)';
+      ctx.font = '16px Segoe UI, sans-serif';
+      ctx.fillText('Recorde: ' + best, W / 2, H * 0.34);
+    } else if (menuScreen === 'records') {
+      heading('RECORDES');
+      ctx.fillStyle = '#ffd93b';
+      ctx.font = 'bold 66px Segoe UI, sans-serif';
+      ctx.fillText(best, W / 2, H * 0.46);
+      ctx.fillStyle = '#fff';
+      ctx.font = '18px Segoe UI, sans-serif';
+      ctx.fillText('melhor pontuação', W / 2, H * 0.53);
+    } else if (menuScreen === 'options') {
+      heading('OPÇÕES');
+    } else if (menuScreen === 'quit') {
+      heading('Até logo!');
+      ctx.fillStyle = '#fff';
+      ctx.font = '18px Segoe UI, sans-serif';
+      ctx.fillText('Obrigado por jogar!', W / 2, H * 0.42);
+      ctx.font = '15px Segoe UI, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,.8)';
+      ctx.fillText('Você já pode fechar a janela.', W / 2, H * 0.48);
+    }
+
+    const btns = layoutButtons();
+    // som ao passar o cursor por um novo botão
+    let hov = null;
+    for (const b of btns) {
+      if (pointer.x >= b.x && pointer.x <= b.x + b.w && pointer.y >= b.y && pointer.y <= b.y + b.h) hov = b.label;
+    }
+    if (hov && hov !== lastHover) sndHover();
+    lastHover = hov;
+
+    for (const b of btns) drawButton(b);
+  }
+
+  function menuTitle(a, b) {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(0,0,0,.55)';
+    ctx.font = 'bold 58px Segoe UI, sans-serif';
+    ctx.fillStyle = '#ffd93b';
+    ctx.strokeText(a, W / 2, H * 0.19);
+    ctx.fillText(a, W / 2, H * 0.19);
+    ctx.fillStyle = '#5cd6c0';
+    ctx.strokeText(b, W / 2, H * 0.19 + 56);
+    ctx.fillText(b, W / 2, H * 0.19 + 56);
+    ctx.restore();
+  }
+
+  function heading(t) {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = 'rgba(0,0,0,.55)';
+    ctx.font = 'bold 40px Segoe UI, sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.strokeText(t, W / 2, H * 0.2);
+    ctx.fillText(t, W / 2, H * 0.2);
+    ctx.restore();
+  }
+
+  function drawButton(b) {
+    const hover = pointer.x >= b.x && pointer.x <= b.x + b.w &&
+                  pointer.y >= b.y && pointer.y <= b.y + b.h;
+    const r = b.h / 2; // formato pílula
+    ctx.save();
+
+    // sombra / glow
+    if (hover) {
+      ctx.shadowColor = 'rgba(78,192,202,0.75)';
+      ctx.shadowBlur = 24;
+    } else {
+      ctx.shadowColor = 'rgba(0,0,0,0.35)';
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetY = 5;
+    }
+
+    // corpo: vidro translúcido (normal) ou preenchido ciano (hover)
+    const g = ctx.createLinearGradient(0, b.y, 0, b.y + b.h);
+    if (hover) {
+      g.addColorStop(0, '#7fe6ef');
+      g.addColorStop(1, '#38a9b8');
+    } else {
+      g.addColorStop(0, 'rgba(255,255,255,0.17)');
+      g.addColorStop(1, 'rgba(255,255,255,0.05)');
+    }
+    ctx.fillStyle = g;
+    roundRect(b.x, b.y, b.w, b.h, r);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+
+    // reflexo glossy no topo (metade superior)
+    ctx.save();
+    roundRect(b.x, b.y, b.w, b.h, r);
+    ctx.clip();
+    const hi = ctx.createLinearGradient(0, b.y, 0, b.y + b.h * 0.55);
+    hi.addColorStop(0, 'rgba(255,255,255,' + (hover ? 0.35 : 0.22) + ')');
+    hi.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = hi;
+    ctx.fillRect(b.x, b.y, b.w, b.h * 0.55);
+    ctx.restore();
+
+    // borda
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = hover ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)';
+    roundRect(b.x, b.y, b.w, b.h, r);
+    ctx.stroke();
+
+    // rótulo
+    ctx.fillStyle = hover ? '#06333c' : '#ffffff';
+    ctx.font = '600 18px Segoe UI, sans-serif';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '1.5px';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 1);
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.restore();
+  }
+
+  // badge de poder ativo: rótulo + barra de tempo restante (frac 0..1)
+  function powerBadge(x, y, label, frac, color) {
+    const w = 96, h = 20;
+    ctx.save();
+    ctx.textAlign = 'left';
+    // fundo
+    ctx.fillStyle = 'rgba(0,0,0,.5)';
+    roundRect(x, y, w, h, 6);
+    ctx.fill();
+    // barra de tempo
+    ctx.fillStyle = color;
+    roundRect(x + 2, y + 2, (w - 4) * Math.max(0, frac), h - 4, 4);
+    ctx.fill();
+    // rótulo
+    ctx.fillStyle = '#08131c';
+    ctx.font = 'bold 12px Segoe UI, sans-serif';
+    ctx.fillText(label, x + 8, y + 14);
+    ctx.restore();
+  }
+
+  function panel(title, lines) {
+    const lineH = 28;
+    const pw = 260;
+    const ph = 78 + lines.length * lineH + 32; // título + linhas + rodapé
+    const px = (W - pw) / 2, py = H / 2 - ph / 2 - 30;
+
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    roundRect(px, py, pw, ph, 16);
+    ctx.fill();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd93b';
+    ctx.font = 'bold 34px Segoe UI, sans-serif';
+    ctx.fillText(title, W / 2, py + 50);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '20px Segoe UI, sans-serif';
+    let ty = py + 84;
+    for (const line of lines) {
+      ctx.fillText(line, W / 2, ty);
+      ty += lineH;
+    }
+
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.font = '14px Segoe UI, sans-serif';
+    const cta = state === DEAD ? 'Toque para jogar de novo' : 'Clique • Toque • ESPAÇO';
+    ctx.fillText(cta, W / 2, py + ph - 16);
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // --- Ajuste de tamanho na janela ---
+  // Escala o canvas para o maior tamanho possível mantendo a proporção 360:640.
+  // Renderiza em alta resolução (devicePixelRatio) e mantém o sistema lógico 360x640.
+  function fit() {
+    const availW = window.innerWidth * 0.98;
+    const availH = window.innerHeight * 0.98;
+    let cssW = Math.min(availW, availH * W / H);
+    let cssH = cssW * H / W;
+    if (cssH > availH) { cssH = availH; cssW = cssH * W / H; }
+
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+
+    // desenho continua usando coordenadas lógicas 360x640
+    ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+  }
+  window.addEventListener('resize', fit);
+
+  // --- Loop ---
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  fit();
+  reset();
+  loop();
+})();
+</script>
+</body>
+</html>
