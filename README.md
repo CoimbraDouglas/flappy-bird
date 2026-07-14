@@ -10,6 +10,20 @@ O jogo evolui conforme você pontua: o **céu muda de hora** (dia → noite), os
 
 ---
 
+## 📱 QR Code para jogar online
+
+Aponte a câmera do celular para o QR Code e jogue direto no navegador:
+
+<p align="center">
+  <img src="coimbradouglas-github-io-flappy-bird.png" alt="QR Code — https://coimbradouglas.github.io/flappy-bird/" width="240">
+</p>
+
+<p align="center">
+  <a href="https://coimbradouglas.github.io/flappy-bird/">https://coimbradouglas.github.io/flappy-bird/</a>
+</p>
+
+---
+
 ## ▶️ Como jogar
 
 1. Abra o arquivo **`index.html`** no navegador (duplo clique ou arraste pra janela do navegador).
