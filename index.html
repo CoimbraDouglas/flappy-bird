@@ -95,6 +95,8 @@
   // Entre 220 e 300 nada muda (ferrugem saturada, carbonização = 0).
   const CHAR_START = 300; // ponto em que a carbonização começa (301+ já escurece)
   const CHAR_FULL = 600;  // ponto em que os canos ficam totalmente pretos
+  const GROUND_CHAR_START = 280; // ponto em que o chão começa a carbonizar
+  const GROUND_CHAR_FULL = 600;  // ponto em que o chão fica totalmente carbonizado
   const GROUND_H = 90;
   const BIRD_X = 90;
   const COIN_R = 13;
@@ -1248,14 +1250,17 @@
 
   function drawGround() {
     const gy = H - GROUND_H;
-    ctx.fillStyle = '#ded895';
+    // carbonização do chão: 0 até 280 pontos, cresce até 1 (carbonizado) em GROUND_CHAR_FULL
+    const gch = Math.max(0, Math.min(1, (score - GROUND_CHAR_START) / (GROUND_CHAR_FULL - GROUND_CHAR_START)));
+    // terra bege -> cinza escuro carbonizado
+    ctx.fillStyle = lerpColor('#ded895', '#201c17', gch);
     ctx.fillRect(-16, gy, W + 32, GROUND_H + 16);
-    ctx.fillStyle = '#c5b869';
+    ctx.fillStyle = lerpColor('#c5b869', '#161310', gch);
     ctx.fillRect(0, gy, W, 12);
-    // faixa tracejada de grama
-    ctx.fillStyle = '#7ec850';
+    // faixa tracejada de grama (verde -> queimada/preta)
+    ctx.fillStyle = lerpColor('#7ec850', '#1e2016', gch);
     ctx.fillRect(0, gy - 6, W, 8);
-    ctx.fillStyle = '#5cb83c';
+    ctx.fillStyle = lerpColor('#5cb83c', '#10120b', gch);
     for (let x = groundOffset; x < W; x += 24) {
       ctx.fillRect(x, gy - 6, 12, 8);
     }
