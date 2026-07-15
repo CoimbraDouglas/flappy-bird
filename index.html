@@ -91,11 +91,15 @@
   const PIPE_SPACING = 210;
   const PIPE_SPEED = 2.4;
   const RUST_FULL = 220; // pontuação em que os canos ficam totalmente enferrujados
+  // 2ª fase de degradação: acima de 300 os canos começam a carbonizar (ficar pretos).
+  // Entre 220 e 300 nada muda (ferrugem saturada, carbonização = 0).
+  const CHAR_START = 300; // ponto em que a carbonização começa (301+ já escurece)
+  const CHAR_FULL = 600;  // ponto em que os canos ficam totalmente pretos
   const GROUND_H = 90;
   const BIRD_X = 90;
   const COIN_R = 13;
   // Tipos de moeda: valor, chance de aparecer e cores.
-  // Chances somam 70% (gold 10% + silver 25% + bronze 35%); 30% sem moeda.
+  // Chances somam 35% (gold 5% + silver 12.5% + bronze 17.5%); 65% sem moeda.
   const COIN_TYPES = {
     gold:   { value: 3, outer: '#ffcf1a', inner: '#ffe98a', edge: '#c98f00', glow: 'rgba(255,205,26,.9)' },
     silver: { value: 2, outer: '#cfd6e0', inner: '#f2f5fa', edge: '#8a94a6', glow: 'rgba(207,214,224,.9)' },
@@ -103,10 +107,10 @@
   };
   function rollCoinType() {
     const r = Math.random();
-    if (r < 0.10) return 'gold';   // 10%
-    if (r < 0.35) return 'silver'; // 25%
-    if (r < 0.70) return 'bronze'; // 35%
-    return null;                   // 30% sem moeda
+    if (r < 0.05)  return 'gold';   // 5%
+    if (r < 0.175) return 'silver'; // 12.5%
+    if (r < 0.35)  return 'bronze'; // 17.5%
+    return null;                    // 65% sem moeda
   }
 
   // Céu muda conforme a pontuação: cada tema tem cor de topo e de baixo.
@@ -238,6 +242,8 @@
 
     // ferrugem aumenta com a pontuação: canos mais adiante são "mais antigos"
     const rust = Math.max(0, Math.min(1, score / RUST_FULL));
+    // carbonização: 0 até 300 pontos, depois cresce até 1 (preto total) em CHAR_FULL
+    const char = Math.max(0, Math.min(1, (score - CHAR_START) / (CHAR_FULL - CHAR_START)));
     const rustSpots = [];
     for (let k = 0; k < 7; k++) {
       rustSpots.push({
@@ -254,20 +260,20 @@
       streaks.push({ u: Math.random(), w: 1.5 + Math.random() * 2.5, len: 0.3 + Math.random() * 0.55 });
     }
 
-    pipes.push({ x, top, passed: false, rust, rustSpots, streaks });
+    pipes.push({ x, top, passed: false, rust, char, rustSpots, streaks });
 
     // power-ups raros
     let placedPower = false;
     if (allowCoin !== false) {
       let kind = null;
-      // Espaço (teletransporte): 1% a qualquer pontuação
-      if (Math.random() < 0.01) {
+      // Espaço (teletransporte): 0.5% a qualquer pontuação
+      if (Math.random() < 0.005) {
         kind = 'warp';
       } else if (score >= POWER_SCORE) {
         // Estrela / Câmera lenta: só a partir de 200 pontos
         const pr = Math.random();
-        if (pr < 0.04) kind = 'star';
-        else if (pr < 0.08) kind = 'slow';
+        if (pr < 0.02) kind = 'star';
+        else if (pr < 0.04) kind = 'slow';
       }
       if (kind) {
         powers.push({
@@ -603,7 +609,7 @@
       for (const pw of powers) pw.x -= PIPE_SPEED * mul;
 
       // gera estrelas cadentes / meteoros a partir de 200 pontos
-      if (score >= METEOR_SCORE && Math.random() < 0.02) spawnMeteor();
+      if (score >= METEOR_SCORE && Math.random() < 0.01) spawnMeteor();
 
       // recicla / gera novos
       if (pipes.length && pipes[0].x + PIPE_W < -10) {
@@ -1061,11 +1067,19 @@
 
   function drawPipe(p) {
     const r = p.rust || 0;
+    const ch = p.char || 0;
     // cor do cano: verde novo -> marrom enferrujado
-    const c0 = lerpColor('#5cb85c', '#8a5a34', r);
-    const c1 = lerpColor('#73c973', '#b07a48', r);
-    const c2 = lerpColor('#4a9d4a', '#5e3a20', r);
-    const edge = lerpColor('#3a7d3a', '#3d2716', r);
+    let c0 = lerpColor('#5cb85c', '#8a5a34', r);
+    let c1 = lerpColor('#73c973', '#b07a48', r);
+    let c2 = lerpColor('#4a9d4a', '#5e3a20', r);
+    let edge = lerpColor('#3a7d3a', '#3d2716', r);
+    // 2ª fase: marrom enferrujado -> preto carbonizado (mantém leve tom no meio p/ o cano não sumir)
+    if (ch > 0) {
+      c0 = lerpColor(c0, '#141210', ch);
+      c1 = lerpColor(c1, '#26201b', ch);
+      c2 = lerpColor(c2, '#0a0806', ch);
+      edge = lerpColor(edge, '#000000', ch);
+    }
 
     const grad = ctx.createLinearGradient(p.x, 0, p.x + PIPE_W, 0);
     grad.addColorStop(0, c0);
@@ -1107,14 +1121,17 @@
     ctx.rect(x, y, w, h);
     ctx.clip();
 
+    // a textura marrom de ferrugem some conforme o cano carboniza (fica preto)
+    const fade = 1 - (p.char || 0);
+
     // manchas
     for (const s of p.rustSpots) {
       if (s.seg !== seg) continue;
       const cx = x + s.u * w;
       const cy = y + s.yf * h;
       ctx.fillStyle = s.warm > 0.5
-        ? 'rgba(150,74,32,' + (0.5 * r).toFixed(3) + ')'
-        : 'rgba(74,46,28,' + (0.5 * r).toFixed(3) + ')';
+        ? 'rgba(150,74,32,' + (0.5 * r * fade).toFixed(3) + ')'
+        : 'rgba(74,46,28,' + (0.5 * r * fade).toFixed(3) + ')';
       ctx.beginPath();
       ctx.ellipse(cx, cy, s.rx, s.ry, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -1123,7 +1140,7 @@
     // escorridos descendo pela superfície
     for (const st of p.streaks) {
       const sx = x + st.u * w;
-      ctx.fillStyle = 'rgba(92,52,28,' + (0.32 * r).toFixed(3) + ')';
+      ctx.fillStyle = 'rgba(92,52,28,' + (0.32 * r * fade).toFixed(3) + ')';
       ctx.fillRect(sx, y, st.w, h * st.len);
     }
 
@@ -1133,10 +1150,11 @@
   // cria estilhaços a partir de um cano destruído (usa a cor atual do cano)
   function spawnShards(p) {
     const r = p.rust || 0;
+    const ch = p.char || 0;
     const cols = [
-      lerpColor('#73c973', '#b07a48', r),
-      lerpColor('#5cb85c', '#8a5a34', r),
-      lerpColor('#4a9d4a', '#5e3a20', r)
+      lerpColor(lerpColor('#73c973', '#b07a48', r), '#26201b', ch),
+      lerpColor(lerpColor('#5cb85c', '#8a5a34', r), '#141210', ch),
+      lerpColor(lerpColor('#4a9d4a', '#5e3a20', r), '#0a0806', ch)
     ];
     const by = p.top + PIPE_GAP;
     const segs = [{ y0: 0, y1: p.top }, { y0: by, y1: H - GROUND_H }];
