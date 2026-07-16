@@ -56,23 +56,13 @@ Ao abrir a URL no navegador do celular, o jogo já se ajusta pra ocupar quase to
 ## ✨ Funcionalidades
 
 - **Física** de gravidade + pulo, com o pássaro rotacionando conforme sobe/cai.
+
 - **Moedas bônus** em três tipos, que somam pontos:
-  - 🥉 **Bronze** — `+1` (35% de chance por cano)
-  - 🥈 **Prata** — `+2` (25%)
-  - 🥇 **Ouro** — `+3` (10%)
-- **Céu que muda de hora** conforme a pontuação (transição suave):
-
-  | Pontos | Céu |
-  |-------:|-----|
-  | 0 | ☀️ Dia |
-  | 75 | 🌤️ Manhã dourada |
-  | 150 | 🌇 Entardecer |
-  | 250 | 🌆 Pôr do sol |
-  | 350+ | 🌙 Noite |
-
-- **Estrelas e lua** surgem gradualmente entre **250 e 350** pontos; as **nuvens** acompanham a cor do céu.
-- **Canos enferrujam** com o tempo (mudam de verde para marrom, com manchas e escorridos), ficando totalmente corroídos em **220** pontos — como se você encontrasse canos cada vez mais antigos.
-- **Meteoros / estrelas cadentes** riscam o céu a partir de **200** pontos.
+  - 🥉 **Bronze** — `+1`
+  - 🥈 **Prata** — `+2`
+  - 🥇 **Ouro** — `+3`
+  
+- **Visual dinâmico** 
 - **Habilidades especiais** (veja abaixo).
 - **Sons** sintetizados via Web Audio para todas as ações (pulo, ponto, moeda, morte, poderes, cliques…).
 - **Menu inicial** com fundo do jogo desfocado e telas de **Recordes** e **Opções**.
@@ -84,9 +74,9 @@ Aparecem como itens flutuantes coletáveis, com timer no HUD e efeito visual.
 
 | Item | Efeito | Quando aparece |
 |------|--------|----------------|
-| ⭐ **Estrela** | Invencível por **13s**: **destrói os canos** que tocar (com estilhaços e tremor de tela) | ~4% por cano, a partir de **200** pts |
-| 🐌 **Câmera lenta** | Tudo a **50%** da velocidade por **13s** (estilo bullet-time) | ~4% por cano, a partir de **200** pts |
-| 🌀 **Espaço (warp)** | **Teletransporta +150 pontos** de uma vez, com flash roxo, portal e partículas | **1%** por cano, **a qualquer momento** |
+| ⭐ **Estrela** | Invencível por **13s**: **destrói os canos** que tocar (com estilhaços e tremor de tela) | 
+| 🐌 **Câmera lenta** | Tudo a **50%** da velocidade por **13s** (estilo bullet-time) | 
+| 🌀 **Espaço (warp)** | **Teletransporta** de uma vez, com flash roxo, portal e partículas | 
 
 ---
 
@@ -147,3 +137,4 @@ FlappyBird/
 ---
 
 Feito para rodar em qualquer navegador moderno, no computador ou no celular. 🎮
+Obs: Eu percebi jogando em alguns navegadores que no modo on-line pode acontecer da calibragem da gravidade/ velocidade fique desregular. Se for o seu caso, recomendo baixar o projeto e jogar localmente para ter uma experiência melhor.
