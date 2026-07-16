@@ -610,6 +610,9 @@
       for (const c of coins) c.x -= PIPE_SPEED * mul;
       for (const pw of powers) pw.x -= PIPE_SPEED * mul;
 
+      // chão rola junto com os canos (na simulação, pra ficar sincronizado)
+      groundOffset = (groundOffset - PIPE_SPEED * mul) % 24;
+
       // gera estrelas cadentes / meteoros a partir de 200 pontos
       if (score >= METEOR_SCORE && Math.random() < 0.01) spawnMeteor();
 
@@ -801,8 +804,7 @@
     // power-ups (habilidades)
     for (const pw of powers) drawPower(pw);
 
-    // chão (acompanha a câmera lenta)
-    if (state === PLAY) groundOffset = (groundOffset - PIPE_SPEED * timeMul) % 24;
+    // chão (rolagem calculada no update, sincronizada com os canos)
     drawGround();
 
     // efeitos "+1" / avisos
@@ -1564,6 +1566,8 @@
   // --- Ajuste de tamanho na janela ---
   // Escala o canvas para o maior tamanho possível mantendo a proporção 360:640.
   // Renderiza em alta resolução (devicePixelRatio) e mantém o sistema lógico 360x640.
+  // dprCap é o teto de densidade: cai automaticamente se o FPS ficar baixo (ver loop).
+  let dprCap = 2;
   function fit() {
     const availW = window.innerWidth * 0.98;
     const availH = window.innerHeight * 0.98;
@@ -1574,7 +1578,7 @@
     canvas.style.width = cssW + 'px';
     canvas.style.height = cssH + 'px';
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
 
@@ -1584,16 +1588,77 @@
   }
   window.addEventListener('resize', fit);
 
-  // --- Loop ---
-  function loop() {
-    update();
-    draw();
+  // --- Loop (timestep fixo: simulação a 60 Hz, render na taxa do monitor) ---
+  // Antes o update() rodava 1x por frame de tela, então em máquinas/telas onde o
+  // navegador não segurava 60 FPS o jogo inteiro virava câmera lenta ("frame rate
+  // baixo"); em telas de 120/144 Hz corria rápido demais. Agora o tempo real (dt)
+  // é acumulado e a simulação avança em passos fixos de 1/60 s, independente do FPS.
+  const STEP = 1000 / 60;   // ms por passo de simulação
+  const MAX_GAP = 250;      // ms; acima disso (troca de aba) não faz catch-up
+  const MAX_STEPS = 5;      // teto de passos por frame (evita "spiral of death")
+  let lastT = performance.now();
+  let accT = 0;
+
+  // Medidor de FPS (suavizado) — usado pela qualidade adaptativa e pelo overlay ?fps=1
+  let fpsSmooth = 0;
+  const SHOW_FPS = /[?&]fps=1/.test(location.search);
+
+  // Qualidade adaptativa: se o FPS ficar baixo de forma sustentada durante o jogo,
+  // reduz o devicePixelRatio (maior custo de render) pra recuperar fluidez.
+  let lowFpsFrames = 0;
+
+  function loop(now) {
     requestAnimationFrame(loop);
+
+    let dt = now - lastT;
+    lastT = now;
+
+    // FPS instantâneo (com o dt real, antes de qualquer clamp) suavizado por EMA
+    const inst = 1000 / Math.max(1, dt);
+    fpsSmooth = fpsSmooth ? fpsSmooth * 0.9 + inst * 0.1 : inst;
+
+    if (dt > MAX_GAP) dt = STEP; // voltou do segundo plano: avança só 1 passo
+
+    accT += dt;
+    let steps = 0;
+    while (accT >= STEP) {
+      update();
+      accT -= STEP;
+      if (++steps >= MAX_STEPS) { accT = 0; break; } // não acompanha: descarta o atraso
+    }
+
+    draw();
+    if (SHOW_FPS) drawFps(fpsSmooth);
+
+    // baixa a densidade se estiver engasgando durante o jogo (2 -> 1.5 -> 1)
+    if (state === PLAY && dprCap > 1) {
+      if (fpsSmooth < 45) lowFpsFrames++;
+      else lowFpsFrames = Math.max(0, lowFpsFrames - 2);
+      if (lowFpsFrames > 90) { // ~1,5 s de FPS baixo sustentado
+        dprCap = dprCap > 1.5 ? 1.5 : 1;
+        fit();
+        lowFpsFrames = 0;
+      }
+    }
+  }
+
+  function drawFps(v) {
+    ctx.save();
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const txt = 'FPS ' + Math.round(v) + '  DPR ' + dprCap;
+    const w = ctx.measureText(txt).width + 12;
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    ctx.fillRect(6, H - 24, w, 18);
+    ctx.fillStyle = v < 50 ? '#ff6b6b' : v < 58 ? '#ffd93b' : '#7CFF9B';
+    ctx.fillText(txt, 12, H - 21);
+    ctx.restore();
   }
 
   fit();
   reset();
-  loop();
+  requestAnimationFrame(loop);
 })();
 </script>
 </body>
