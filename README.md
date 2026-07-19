@@ -4,7 +4,7 @@
 
 [![Jogar online](https://img.shields.io/badge/%F0%9F%8E%AE_Jogar_online-GitHub_Pages-4ec0ca?style=for-the-badge)](https://coimbradouglas.github.io/flappy-bird/)
 
-Um clone do **Flappy Bird** feito em **HTML5 Canvas**, num **único arquivo** (`index.html`), **100% offline** e **sem dependências**. É só abrir no navegador e jogar.
+Um jogo inspirado no clássico **Flappy Bird**, feito em **HTML5 Canvas**, num **único arquivo** (`index.html`), **100% offline** e **sem dependências**. É só abrir no navegador e jogar.
 
 O jogo evolui conforme você pontua: o **céu muda de hora** (dia → noite), os **canos enferrujam**, surgem **meteoros** e **habilidades especiais** — tudo com **sons sintetizados** em tempo real (nenhum arquivo de áudio).
 
