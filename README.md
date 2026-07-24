@@ -75,7 +75,7 @@ Aparecem como itens flutuantes coletáveis, com timer no HUD e efeito visual.
 | Item | Efeito | Quando aparece |
 |------|--------|----------------|
 | ⭐ **Estrela** | Invencível por **13s**: **destrói os canos** que tocar (com estilhaços e tremor de tela) | 
-| 🐌 **Câmera lenta** | Tudo a **50%** da velocidade por **13s** (estilo bullet-time) | 
+| 🐌 **Câmera lenta** | Tudo a **50%** da velocidade. (estilo bullet-time) | 
 | 🌀 **Espaço (warp)** | **Teletransporta** de uma vez, com flash roxo, portal e partículas | 
 
 ---
