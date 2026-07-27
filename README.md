@@ -66,7 +66,7 @@ Ao abrir a URL no navegador do celular, o jogo já se ajusta pra ocupar quase to
 - **Habilidades especiais** (veja abaixo).
 - **Sons** sintetizados via Web Audio para todas as ações (pulo, ponto, moeda, morte, poderes, cliques…).
 - **Menu inicial** com fundo do jogo desfocado e telas de **Recordes** e **Opções**.
-- **Recorde** salvo no navegador (`localStorage`).
+- **Recorde** salvo no navegador (`localStorage`), cuidado porque seus dados não são permanente.
 
 ### Habilidades (power-ups)
 
