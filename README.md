@@ -137,4 +137,5 @@ FlappyBird/
 ---
 
 Feito para rodar em qualquer navegador moderno, no computador ou no celular. 🎮
+
 Obs: Eu percebi jogando em alguns navegadores que no modo on-line pode acontecer da calibragem da gravidade/ velocidade fique desregular. Se for o seu caso, recomendo baixar o projeto e jogar localmente para ter uma experiência melhor.
