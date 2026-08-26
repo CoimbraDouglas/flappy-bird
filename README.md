@@ -86,7 +86,7 @@ Aparecem como itens flutuantes coletáveis, com timer no HUD e efeito visual.
 - **Tremor:** liga/desliga o tremor de tela do impacto da Estrela.
 - **Zerar Recorde:** apaga a melhor pontuação salva.
 
-As preferências ficam salvas no navegador.
+As configurações ficam salvas no navegador.
 
 ---
 
