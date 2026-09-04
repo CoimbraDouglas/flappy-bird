@@ -6,7 +6,7 @@
 
 Um jogo inspirado no clássico **Flappy Bird**, feito em **HTML5 Canvas**, num **único arquivo** (`index.html`), **100% offline** e **sem dependências**. É só abrir no navegador e jogar.
 
-O jogo evolui conforme você pontua: o **céu muda de hora** (dia → noite), os **canos enferrujam**, surgem **meteoros** e **habilidades especiais** — tudo com **sons sintetizados** em tempo real (nenhum arquivo de áudio).
+O jogo evolui em muitos aspectos conforme você pontua: o **céu muda de hora** (dia → noite), os **canos enferrujam**, surgem **meteoros** e **habilidades especiais** — tudo com **sons sintetizados** em tempo real (nenhum arquivo de áudio).
 
 ---
 
